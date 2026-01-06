@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MC Basic 增强实验室</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/theme/dracula.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/mode/python/python.min.js"></script>
+    
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f7f6; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        header { background: #2c3e50; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        
+        .editor-section { flex: 1; display: flex; flex-direction: column; border-right: 2px solid #ddd; }
+        .CodeMirror { flex: 1; font-size: 14px; }
+        
+        /* 右侧：画布和控制 */
+        .viz-section { width: 420px; display: flex; flex-direction: column; padding: 15px; background: #fff; overflow-y: auto; }
+        canvas { border: 2px solid #333; align-self: center; background: #fff; cursor: pointer; }
+        
+        /* 终端样式 */
+        #terminal {
+            margin-top: 15px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            height: 180px;
+            overflow-y: auto;
+            border-radius: 4px;
+            border: 1px solid #444;
+            white-space: pre-wrap;
+        }
+        .term-out { color: #2ecc71; }
+        .term-err { color: #e74c3c; }
+
+        .controls { width: 100%; margin-top: 15px; }
+        button { width: 100%; padding: 10px; margin-bottom: 5px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
+        #runBtn { background: #27ae60; color: white; }
+        #runBtn:disabled { background: #95a5a6; }
+        
+        #status { font-size: 13px; color: #666; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="font-size: 1.1em;">MC Basic 实验室 (支持 Print 输出)</div>
+    <div id="status">正在加载 Python...</div>
+</header>
+
+<div class="main-container">
+    <div class="editor-section">
+        <textarea id="codeEditor"># 在这里编写代码，可以使用 print() 调试
+import numpy as np
+import random
+
+# 记得点两下栅格：设置一个终点 (红色格子)
+
+'''
+5000次迭代, 目标是为了得到一个 Q-Table, 里面有不同状态不同动作的G值, G的大小代表这优先级:
+    1. 探索性初始化 (Exploring Starts)
+        (1) 随机起点、随机动作，确保地图每个角落都有机会被探索
+    2. 生成一个回合的轨迹、以及每一个轨迹上的及时奖励 (Episode Generation)
+        (1) 从该起点, 该动作, 走K步, 接下来每一次都参考 Q-Table ，并选择最优动作(价值评估)作为下一次动作
+        (2) 生成一个轨迹，并记录每一次位置、动作、奖励
+    3. 策略评估 (Policy Evaluation) (计算 G 并更新 Q)
+        (1) 从结束点往起点倒推
+        (2) 计算回报G, 公式: G = r + γ * G
+        (3) 记录该状态动作对的回报并更新平均值
+        (4) Q(s,a) = 累计总回报 / 出现次数
+'''
+
+
+
+# solve_mc 是核心算法函数
+# grid_array: 2D 阵列 (0=路, 1=墙, 2=终点)
+# rows, cols: 地图的尺寸
+def solve_mc(grid_array, rows, cols):
+    print(f"开始训练... 地图大小: {rows}x{cols}")
+    
+    # --- 超参数设置 ---
+    gamma = 0.9      # 折扣因子 (Discount Factor): 决定了未来奖励的重要性，越接近1越看重长远利益
+    episodes = 500   # 训练总场次: 智能体尝试走迷宫的总次数
+    
+    # 定义动作集 (Action Space): 0:右, 1:左, 2:下, 3:上
+    actions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    
+    # --- 数据结构初始化 ---
+    # Q-Table: 存储状态-动作值。维度 [行, 列, 4个动作]
+    # 它代表：在某个格子执行某个动作，预期能获得的累计奖励总和
+    q_table = np.zeros((rows, cols, 4))
+    
+    # 用于计算平均奖励的辅助表格（蒙特卡罗法特有）
+    returns_sum = np.zeros((rows, cols, 4))   # 累计总回报
+    returns_count = np.zeros((rows, cols, 4)) # 该状态动作对出现的次数
+
+    # --- 开始迭代训练 ---, 每一次都会更新Q
+    for i in range(episodes):
+        if i % 100 == 0:
+            print(f"正在迭代第 {i} 轮...")
+            
+        # 1. 探索性初始化 (Exploring Starts)
+        # 随机起点、随机动作
+        # 随机选择一个“路”(0) 作为起点，确保地图每个角落都有机会被探索
+        starts = np.argwhere(grid_array == 0)
+        if len(starts) == 0: break
+        s_start = tuple(random.choice(starts))
+        a_start = random.randint(0, 3) # 随机选择第一个动作
+        
+        trajectory = [] # 轨迹列表：记录这一局走过的路 [(状态, 动作, 奖励), ...]
+        curr_s = s_start
+        curr_a = a_start
+        
+        # 2. 生成一个回合的轨迹、以及每一个轨迹上的及时奖励 (Episode Generation), 为什么执行50次: 假设50步可以到达终点(定义“有效经验”的范围)
+        # 需要注意50次中,每一次都会更新循环中的下一次相对起点，直到终止，记录轨迹，以及每一步的及时奖励
+        for _ in range(50): # 限制步数，防止死循环
+            # ----------------------
+            # 起点行和列
+            r, c = curr_s
+            # 执行的动作
+            dr, dc = actions[curr_a]
+            # 下一步的位置
+            next_s = (r + dr, c + dc)
+            
+            # 判定：如果撞墙或出界，为当前轨迹较大惩罚
+            if not (0 <= next_s[0] < rows and 0 <= next_s[1] < cols) or grid_array[next_s[0], next_s[1]] == 1:
+                trajectory.append((curr_s, curr_a, -10)) # 给予较大的惩罚
+                break
+                
+            # 判定：如果到达终点 (红色格子)
+            if grid_array[next_s[0], next_s[1]] == 2:
+                trajectory.append((curr_s, curr_a, 100)) # 给予高额奖励
+                break
+            
+            # 判定：普通移动
+            trajectory.append((curr_s, curr_a, -1)) # 每走一步扣1分，鼓励走最短路径
+            
+            # 策略选择：基于当前位置的 Q 表进行“贪婪”选择（选择当前得分最高的动作）,返回的是index
+            curr_s = next_s
+            curr_a = np.argmax(q_table[curr_s[0], curr_s[1]])
+  
+            
+        # 3. 策略评估 (Policy Evaluation) (计算 G 并更新 Q)
+        # 蒙特卡罗法的核心：从轨迹末尾向开头倒推计算累计回报 G
+        G = 0
+        # 从结束反向遍历轨迹
+        for s, a, r in reversed(trajectory):
+            # 计算回报公式: G = r + γ * G
+            G = gamma * G + r
+            
+            # 记录该状态动作对的回报并更新平均值
+            returns_sum[s[0], s[1], a] += G
+            returns_count[s[0], s[1], a] += 1
+            # Q(s,a) = 累计总回报 / 出现次数
+            q_table[s[0], s[1], a] = returns_sum[s[0], s[1], a] / returns_count[s[0], s[1], a]
+
+    print("训练完成！已生成最优策略。")
+    
+    # 最终返回：每一个格子中 Q 值最大的动作索引 (0-3)，用于前端绘制箭头
+    return np.argmax(q_table, axis=2).tolist()
+</textarea>
+    </div>
+
+    <div class="viz-section">
+        <canvas id="gridCanvas" width="350" height="350"></canvas>
+        <div class="controls">
+            <button id="runBtn" disabled onclick="executePython()">运行代码 (Run)</button>
+            <button onclick="resetGrid()" style="background:#e67e22; color:white;">清空地图</button>
+            <button onclick="clearTerminal()" style="background:#7f8c8d; color:white;">清空终端</button>
+        </div>
+        <div id="terminal"></div>
+    </div>
+</div>
+
+<script>
+    let pyodide;
+    const terminal = document.getElementById('terminal');
+    const canvas = document.getElementById('gridCanvas');
+    const ctx = canvas.getContext('2d');
+    const rows = 10, cols = 10, size = 35;
+    let grid = Array(rows).fill().map(() => Array(cols).fill(0));
+
+    const editor = CodeMirror.fromTextArea(document.getElementById("codeEditor"), {
+        mode: "python", theme: "dracula", lineNumbers: true, indentUnit: 4,
+    });
+
+    // 终端打印函数
+    function addToTerminal(msg, type = 'out') {
+        const span = document.createElement('div');
+        span.className = type === 'err' ? 'term-err' : 'term-out';
+        span.textContent = msg;
+        terminal.appendChild(span);
+        terminal.scrollTop = terminal.scrollHeight; // 自动滚动到底部
+    }
+
+    function clearTerminal() { terminal.innerHTML = ''; }
+
+    function draw(policy = null) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const arrows = ['→', '←', '↓', '↑'];
+        for(let r=0; r<rows; r++) {
+            for(let c=0; c<cols; c++) {
+                if(grid[r][c] === 1) ctx.fillStyle = '#333';
+                else if(grid[r][c] === 2) ctx.fillStyle = '#ff4d4d';
+                else ctx.fillStyle = '#fff';
+                ctx.fillRect(c*size, r*size, size, size);
+                ctx.strokeStyle = '#ddd';
+                ctx.strokeRect(c*size, r*size, size, size);
+                if(policy && grid[r][c] === 0) {
+                    ctx.fillStyle = "#3498db";
+                    ctx.font = "bold 16px Arial";
+                    ctx.fillText(arrows[policy[r][c]], c*size + 12, r*size + 24);
+                }
+            }
+        }
+    }
+
+    canvas.onclick = (e) => {
+        const r = Math.floor(e.offsetY / size);
+        const c = Math.floor(e.offsetX / size);
+        if (r < rows && c < cols) {
+            grid[r][c] = (grid[r][c] + 1) % 3;
+            draw();
+        }
+    };
+
+    function resetGrid() {
+        grid = Array(rows).fill().map(() => Array(cols).fill(0));
+        draw();
+    }
+
+    async function initPy() {
+        try {
+            pyodide = await loadPyodide();
+            await pyodide.loadPackage("numpy");
+            
+            // 【核心：重定向 stdout】
+            pyodide.setStdout({
+                batched: (str) => addToTerminal(str)
+            });
+
+            document.getElementById('status').innerText = "● Python (WASM) 就绪";
+            document.getElementById('status').style.color = "#2ecc71";
+            document.getElementById('runBtn').disabled = false;
+        } catch (e) {
+            addToTerminal("环境加载失败: " + e.message, 'err');
+        }
+    }
+
+    async function executePython() {
+        const btn = document.getElementById('runBtn');
+        btn.disabled = true;
+        
+        try {
+            const userCode = editor.getValue();
+            pyodide.globals.set("js_grid", grid);
+            
+            const fullCode = `
+import numpy as np
+${userCode}
+grid_data = np.array(js_grid.to_py())
+solve_mc(grid_data, ${rows}, ${cols})
+`;
+            // 运行并获取结果
+            const result = await pyodide.runPythonAsync(fullCode);
+            if (result) draw(result.toJs());
+            
+        } catch (err) {
+            addToTerminal("Error: " + err.message, 'err');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    initPy();
+    draw();
+</script>
+
+</body>
+</html>
