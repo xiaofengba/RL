@@ -262,7 +262,7 @@ def main():
 
     TARGET_UPDATE   = 10        # 每隔30个Episode，把 PolicyNet 参数复制给 TargetNet
     MEMORY_CAPACITY = 10000     # 经验回放池的大小
-    NUM_EPISODES    = 200       # 总训练回合数
+    NUM_EPISODES    = 500       # 总训练回合数
 
     # 检测是否有GPU，没有则使用CPU
     device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
