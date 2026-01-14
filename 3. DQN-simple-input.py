@@ -29,9 +29,10 @@ GRAY = (200, 200, 200)  # 网格线 / 普通箭头
 # ==========================================
 class GridWorld:
     def __init__(self, size=GRID_SIZE):
-        self.MAX_STEP = 100                 # 机器人交互的最大步数
+        self.MAX_STEP = 50                 # 机器人交互的最大步数
         self.size = size
-        self.state_dim = (3, size, size)    # 通道0:机器人位置, 通道1:障碍物, 通道2:目标
+        # 修改：输入维度变为 13 (2机器人坐标 + 2终点坐标 + 9局部环境)
+        self.state_dim = 13                 
         self.action_dim = 4                 # 0:Up, 1:Down, 2:Left, 3:Right
         self.goal_pos = (size-1, size-1)    # 目标位置
         self.obstacles = [(1, 1), (2, 2), (3, 1), (1, 3)] 
@@ -74,33 +75,54 @@ class GridWorld:
         return self.get_state_at(self.agent_pos)
 
     def get_state_at(self, pos):
-        """生成指定位置的状态 Tensor (用于可视化分析)"""
-        state = np.zeros((3, self.size, self.size), dtype=np.float32)
+        """
+        修改：生成指定位置的状态向量 (坐标+局部环境)
+        输入: Robot XY (2), Goal XY (2), 3x3 Map (9) = Total 13
+        """
         ax, ay = pos
         gx, gy = self.goal_pos
-        state[0, ax, ay] = 1.0 
-        for (ox, oy) in self.obstacles:
-            state[1, ox, oy] = 1.0 
-        state[2, gx, gy] = 1.0 
-        return state
+        
+        state = []
+        
+        # 1. 归一化的自身坐标和终点坐标 (范围 0~1)
+        state.append(ax / float(self.size))
+        state.append(ay / float(self.size))
+        state.append(gx / float(self.size))
+        state.append(gy / float(self.size))
+        
+        # 2. 以机器人为中心的 3x3 局部环境
+        # 0为无障碍，1为障碍或边界
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                nx, ny = ax + dx, ay + dy
+                
+                val = 0.0
+                # 检查边界 (墙壁视为障碍)
+                if nx < 0 or nx >= self.size or ny < 0 or ny >= self.size:
+                    val = 1.0
+                # 检查障碍物
+                elif (nx, ny) in self.obstacles:
+                    val = 1.0
+                    
+                state.append(val)
+                
+        return np.array(state, dtype=np.float32)
 
 # ==========================================
 # 2. 神经网络 & 3. 经验回放
 # ==========================================
 class DQN(nn.Module):
-    def __init__(self, input_shape, num_actions):
+    def __init__(self, input_dim, num_actions):
         super(DQN, self).__init__()
-        c, h, w = input_shape
+        # 修改：使用全连接层替代卷积层 (MLP)
         self.net = nn.Sequential(
-            nn.Conv2d(c, 16, kernel_size=3, stride=1, padding=1),
+            nn.Linear(input_dim, 128),
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(32 * h * w, 128),
-            nn.ReLU(),
-            nn.Linear(128, num_actions)
+            nn.Linear(64, num_actions)
         )
+
     def forward(self, x): 
         return self.net(x)
 
@@ -132,6 +154,7 @@ def draw_q_overlay(screen, env, model, device):
                 continue
             
             fake_state = env.get_state_at((r, c))
+            # 修改：Input不再是图像，而是向量
             state_tensor = torch.FloatTensor(fake_state).unsqueeze(0).to(device)
             
             with torch.no_grad():
@@ -239,7 +262,7 @@ def main():
 
     TARGET_UPDATE   = 10        # 每隔30个Episode，把 PolicyNet 参数复制给 TargetNet
     MEMORY_CAPACITY = 10000     # 经验回放池的大小
-    NUM_EPISODES    = 500       # 总训练回合数
+    NUM_EPISODES    = 200       # 总训练回合数
 
     # 检测是否有GPU，没有则使用CPU
     device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -294,11 +317,11 @@ def main():
             if random.random() > epsilon:
                 # [利用]: 使用网络预测 Q 值最大的动作
                 with torch.no_grad():
-                    # 增加 Batch 维度: (C, H, W) -> (1, C, H, W)
+                    print(state)
+                    # 增加 Batch 维度: (13) -> (1, 13)
                     state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
                     # shape(4, 1).max(1)[1] 返回最大值的索引 (即动作 ID)
                     action = policy_net(state_tensor).max(1)[1].item()
-                    # print(policy_net(state_tensor))
             else:
                 # [探索]: 随机选择一个动作
                 action = random.randint(0, env.action_dim - 1)
