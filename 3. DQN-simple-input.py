@@ -29,7 +29,7 @@ GRAY = (200, 200, 200)  # 网格线 / 普通箭头
 # ==========================================
 class GridWorld:
     def __init__(self, size=GRID_SIZE):
-        self.MAX_STEP = 50                 # 机器人交互的最大步数
+        self.MAX_STEP = 100                 # 机器人交互的最大步数
         self.size = size
         # 修改：输入维度变为 13 (2机器人坐标 + 2终点坐标 + 9局部环境)
         self.state_dim = 13                 
@@ -258,11 +258,11 @@ def main():
     # 控制着探索的概率
     EPSILON_START   = 0.9   # 刚开始以 90% 的概率随机乱走 (探索)
     EPSILON_END     = 0.1  # 最终保留 5% 的概率随机走，防止陷入局部最优
-    EPSILON_DECAY   = 0.999 # 衰减速率：每个Episode后 epsilon 乘以 0.995
+    EPSILON_DECAY   = 0.99 # 衰减速率：每个Episode后 epsilon 乘以 0.995
 
     TARGET_UPDATE   = 10        # 每隔30个Episode，把 PolicyNet 参数复制给 TargetNet
     MEMORY_CAPACITY = 10000     # 经验回放池的大小
-    NUM_EPISODES    = 500       # 总训练回合数
+    NUM_EPISODES    = 1000       # 总训练回合数
 
     # 检测是否有GPU，没有则使用CPU
     device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
