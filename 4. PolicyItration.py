@@ -51,7 +51,7 @@ class GridWorld:
         elif next_pos == old_pos: 
             # [新增] 撞墙判定！
             # 如果坐标没变，说明撞到了边界
-            reward = -1.0 # 撞墙比走路痛20倍，它就不会贴墙蹭了
+            reward = -10.0 # 撞墙比走路痛20倍，它就不会贴墙蹭了
             # 撞墙不结束 done = False，让它学会走出来
 
         
@@ -225,7 +225,7 @@ def main():
             # 4.2 计算 Advantage (优势函数)
             # 优势 = 实际发生的收益 (TD Target) - Critic 预测的平均收益 (Value)
             # 这就是告诉 Actor："你刚才那一步选得比预期的好(正)还是差(负)？"
-            # 两者的差值 (td_error) 才能精确地衡量出 “这个动作到底带来了多少额外的好处”
+            # 两者的差值 (td_error) 才能精确地衡量出 “这个动作到底带来了多少额外的好处”， 为后续的actor_loss作准备
             td_error = target_value - value
             
             # 4.3 Critic Loss: 也就是让 V(s) 逼近 r + gamma * V(s')
@@ -236,6 +236,7 @@ def main():
             # 相当于策略迭代中的 Policy Improvement 步骤
             # 如果 advantage > 0 (比预期好)，loss 会让 log(prob) 变大 -> 增加该动作概率
             # .detach() 很重要：Critic 的更新不要通过 Advantage 传回给 Actor，各司其职
+            # 看动作带来的好处正负，然后最大化这个概率
             actor_loss = -m.log_prob(action) * td_error.detach()
             
             loss = actor_loss + critic_loss
